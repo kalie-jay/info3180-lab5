@@ -5,10 +5,13 @@ Werkzeug Documentation:  https://werkzeug.palletsprojects.com/
 This file creates your application.
 """
 
-from app import app
+from app import app, db
 from flask import render_template, request, jsonify, send_file
 import os
-
+from flask_wtf.csrf import generate_csrf
+from app.forms import MovieForm
+from app.models import Movie
+from werkzeug.utils import secure_filename
 
 ###
 # Routing for your application.
@@ -61,3 +64,45 @@ def add_header(response):
 def page_not_found(error):
     """Custom 404 page."""
     return render_template('404.html'), 404
+
+@app.route('/api/v1/movies', methods=['POST'])
+def movies():
+    form = MovieForm()
+    if form.validate_on_submit():
+        title = form.title.data
+        description = form.description.data
+        poster = form.poster.data 
+        filename = secure_filename(poster.filename)
+        poster.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        movie = Movie(title=title, description=description, poster=filename)
+        db.session.add(movie)
+        db.session.commit()
+        return jsonify({
+            "message": "Movie Successfully added",
+            "title": "Some Movie Title",
+            "poster": "your-uploaded-movie-poster.jpg",
+            "description": "Summary of the movie"
+        }), 201
+    return jsonify({"errors": form_errors(form)}), 400
+
+@app.route('/api/v1/csrf-token', methods=['GET'])
+def get_csrf():
+    return jsonify({'csrf_token': generate_csrf()})
+
+@app.route('/api/v1/movies', methods=['GET'])
+def get_movies():
+    movies = Movie.query.all()
+    results = []
+    for movie in movies:
+        results.append({
+            "id": movie.id,
+            "title": movie.title,
+            "description": movie.description,
+            "poster": f"/api/v1/posters/{movie.poster}" 
+        })
+    return jsonify({"movies": results})
+
+from flask import send_from_directory
+@app.route('/api/v1/posters/<filename>')
+def get_image(filename):
+    return send_from_directory(os.path.join(os.getcwd(), app.config['UPLOAD_FOLDER']), filename)
